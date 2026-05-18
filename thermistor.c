@@ -128,6 +128,7 @@ static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_fla
 // ---------------------------------------------------------------------------
 
 // $THRMTEMP — query current temperature (allowed in any machine state)
+// $THRMTEMP=1 — same, plus raw ADC, voltages, and computed R_ntc for diagnostics
 static status_code_t cmd_temp (sys_state_t state, char *args)
 {
     if (!can_monitor)
@@ -136,14 +137,33 @@ static status_code_t cmd_temp (sys_state_t state, char *args)
     int32_t raw  = ioport_wait_on_input(Port_Analog, therm_port, WaitMode_Immediate, 0.0f);
     float   temp = read_temperature(raw);
 
-    char buf[64];
-    if (isnan(temp))
+    char buf[96];
+    if (isnan(temp)) {
         strcpy(buf, "[TH0: sensor error]\r\n");
-    else
-        sprintf(buf, "[TH0: %s degC (cal offset: %s)]\r\n",
-                ftoa(temp, 1), ftoa(therm_settings.cal_offset, 2));
+    } else {
+        char s_temp[12], s_offset[12];
+        strncpy(s_temp,   ftoa(temp, 1), sizeof(s_temp) - 1);
+        strncpy(s_offset, ftoa(therm_settings.cal_offset, 2), sizeof(s_offset) - 1);
+        sprintf(buf, "[TH0: %s degC (cal offset: %s)]\r\n", s_temp, s_offset);
+    }
 
     hal.stream.write(buf);
+
+    if (args && *args) {
+        float v_mcu  = (float)raw * (THERMISTOR_V_ADC_REF / 4095.0f);
+        float v_junc = v_mcu * ((THERMISTOR_R_PULLDOWN + therm_settings.r_series) / THERMISTOR_R_PULLDOWN);
+        float r_ntc  = (v_junc > 0.0f && v_junc < THERMISTOR_V_SUPPLY)
+                       ? THERMISTOR_R_REF * v_junc / (THERMISTOR_V_SUPPLY - v_junc)
+                       : NAN;
+        char s_vmcu[12], s_vjunc[12], s_rntc[12];
+        strncpy(s_vmcu,  ftoa(v_mcu, 4),  sizeof(s_vmcu)  - 1);
+        strncpy(s_vjunc, ftoa(v_junc, 4), sizeof(s_vjunc) - 1);
+        strncpy(s_rntc,  isnan(r_ntc) ? "OOB" : ftoa(r_ntc, 1), sizeof(s_rntc) - 1);
+        sprintf(buf, "[TH0 dbg: raw=%ld v_mcu=%sV v_junc=%sV r_ntc=%s]\r\n",
+                (long)raw, s_vmcu, s_vjunc, s_rntc);
+        hal.stream.write(buf);
+    }
+
     return Status_OK;
 }
 
@@ -205,7 +225,7 @@ static bool is_port_available (const setting_detail_t *setting, uint_fast16_t of
 
 static const setting_detail_t plugin_settings[] = {
     { Setting_UserDefined_5, Group_AuxPorts, "Thermistor analog port", NULL,
-      Format_Decimal, "-#0", "-1", a_in.port_maxs,
+      Format_Integer, "-#0", "-1", a_in.port_maxs,
       Setting_NonCoreFn, set_port, get_port, is_port_available, { .reboot_required = On } },
     { Setting_UserDefined_6, Group_General, "Thermistor NTC type", NULL,
       Format_Integer, "#0", "0", "0",
@@ -272,7 +292,7 @@ static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
     if (!newopt)
-        report_plugin("Thermistor", "0.01");
+        report_plugin("Thermistor", "0.03");
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +302,7 @@ static void onReportOptions (bool newopt)
 void thermistor_init (void)
 {
     static const sys_command_t cmd_list[] = {
-        { "THRMTEMP", cmd_temp, { .noargs = On },     { .str = "print current thermistor temperature" } },
+        { "THRMTEMP", cmd_temp, {},                   { .str = "print current thermistor temperature, add =1 for debug" } },
         { "THRMCAL",  cmd_cal,  {},                   { .str = "calibrate: $THRMCAL=<known_temp_celsius>" } },
     };
 
