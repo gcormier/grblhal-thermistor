@@ -254,7 +254,7 @@ static bool is_port_available (const setting_detail_t *setting, uint_fast16_t of
 
 static const setting_detail_t plugin_settings[] = {
     { Setting_UserDefined_5, Group_AuxPorts, "Thermistor analog port", NULL,
-      Format_Integer, "-#0", "-1", a_in.port_maxs,
+      Format_Decimal, "-#0", "-1", a_in.port_maxs,
       Setting_NonCoreFn, set_port, get_port, is_port_available, { .reboot_required = On } },
     { Setting_UserDefined_6, Group_General, "Thermistor NTC type", NULL,
       Format_Integer, "#0", "0", "0",
@@ -321,7 +321,7 @@ static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
     if (!newopt)
-        report_plugin("Thermistor", "1.3");
+        report_plugin("Thermistor", "1.4");
 }
 
 // ---------------------------------------------------------------------------
