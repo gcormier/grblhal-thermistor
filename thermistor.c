@@ -95,9 +95,17 @@ static float read_temperature (int32_t adc_raw)
 // Realtime report hook  — adds |TH0:xx.x to every '?' response
 // ---------------------------------------------------------------------------
 
+// Number of consecutive over-temp readings required before tripping the alarm.
+// Temperature rises over minutes, so a real over-temp condition will sustain
+// across many samples. Requiring 5 consecutive readings rejects single-sample
+// EMI spikes (common during spindle operation) without adding meaningful latency
+// to a genuine thermal event.
+#define OVERTEMP_ALARM_COUNT 5
+
 static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_flags_t report)
 {
-    static float prev_temp = NAN;
+    static float   prev_temp        = NAN;
+    static uint8_t overtemp_count   = 0;
 
     char buf[20] = "";
 
@@ -111,8 +119,19 @@ static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_fla
                 strcat(buf, ftoa(temp, 1));
                 prev_temp = temp;
             }
-            if (therm_settings.max_temp > 0.0f && temp > therm_settings.max_temp)
-                system_set_exec_alarm(Alarm_AbortCycle);
+
+            if (therm_settings.max_temp > 0.0f) {
+                if (temp > therm_settings.max_temp) {
+                    if (++overtemp_count >= OVERTEMP_ALARM_COUNT) {
+                        // Stop the spindle immediately — STATE_ALARM halts motion but does
+                        // not automatically de-energize the spindle for non-critical alarms.
+                        spindle_all_off(true);
+                        system_set_exec_alarm(Alarm_Spindle);
+                    }
+                } else {
+                    overtemp_count = 0;  // clear on any good reading below threshold
+                }
+            }
         }
     }
 
@@ -127,12 +146,22 @@ static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_fla
 // System commands
 // ---------------------------------------------------------------------------
 
-// $THRMTEMP — query current temperature (allowed in any machine state)
-// $THRMTEMP=1 — same, plus raw ADC, voltages, and computed R_ntc for diagnostics
+// $THRMTEMP     — query current temperature
+// $THRMTEMP=1   — same, plus raw ADC, voltages, and computed R_ntc for diagnostics
+// $THRMTEMP=999 — simulate an over-temperature alarm (tests spindle stop + ALARM:14)
 static status_code_t cmd_temp (sys_state_t state, char *args)
 {
     if (!can_monitor)
         return Status_InvalidStatement;
+
+    int arg = args && *args ? atoi(args) : 0;
+
+    if (arg == 999) {
+        hal.stream.write("[TH0: simulating over-temp alarm]\r\n");
+        spindle_all_off(true);
+        system_set_exec_alarm(Alarm_Spindle);
+        return Status_OK;
+    }
 
     int32_t raw  = ioport_wait_on_input(Port_Analog, therm_port, WaitMode_Immediate, 0.0f);
     float   temp = read_temperature(raw);
@@ -149,7 +178,7 @@ static status_code_t cmd_temp (sys_state_t state, char *args)
 
     hal.stream.write(buf);
 
-    if (args && *args) {
+    if (arg == 1) {
         float v_mcu  = (float)raw * (THERMISTOR_V_ADC_REF / 4095.0f);
         float v_junc = v_mcu * ((THERMISTOR_R_PULLDOWN + therm_settings.r_series) / THERMISTOR_R_PULLDOWN);
         float r_ntc  = (v_junc > 0.0f && v_junc < THERMISTOR_V_SUPPLY)
@@ -292,7 +321,7 @@ static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
     if (!newopt)
-        report_plugin("Thermistor", "0.03");
+        report_plugin("Thermistor", "1.3");
 }
 
 // ---------------------------------------------------------------------------
