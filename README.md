@@ -73,23 +73,22 @@ switch (therm_settings.ntc_type) {
 float t_k = 1.0f / (1.0f / t0_k + logf(r_ntc / r0) / beta);
 ```
 
-**Step 3** — update the `$456` setting's `max_value` string in `plugin_settings[]` to
+**Step 3** — update the `$<N+1>` setting's `max_value` string in `plugin_settings[]` to
 reflect the new highest valid type number.
 
 ---
 
 ## Settings
 
-Settings are registered starting at `Setting_UserDefined_5` (ID 455). The exact `$`
-numbers depend on what other plugins are loaded — check `$$` output to confirm.
+Setting numbers (`N`) are assigned at registration time and depend on what other plugins are loaded. Check `$$` output after enabling the plugin.
 
 | Setting | Default | Description |
 |---|---|---|
-| `$455` | unassigned | Aux analog port number. **Requires reboot after change.** |
-| `$456` | `0` | NTC type (0 = NTC3950) |
-| `$457` | `0.0` Ω | Series resistance at MCU pin — corrects the op-amp output divider |
-| `$458` | `0.0` °C | Calibration offset, set automatically by `$THRMCAL` |
-| `$459` | `0.0` °C | Over-temperature alarm threshold (0 = disabled) |
+| `$<N+0>` | unassigned | Aux analog port number. **Requires reboot after change.** |
+| `$<N+1>` | `0` | NTC type (0 = NTC3950) |
+| `$<N+2>` | `0.0` Ω | Series resistance at MCU pin — corrects the op-amp output divider |
+| `$<N+3>` | `0.0` °C | Calibration offset, set automatically by `$THRMCAL` |
+| `$<N+4>` | `0.0` °C | Over-temperature alarm threshold (0 = disabled) |
 
 ---
 
