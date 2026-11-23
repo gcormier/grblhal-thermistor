@@ -303,12 +303,23 @@ static void therm_settings_load (void)
                                  sizeof(thermistor_settings_t), true) != NVS_TransferResult_OK)
         therm_settings_restore();
 
+    static bool hooked = false;
+
+    // Settings may be reloaded at runtime (e.g. after a reset). Active monitoring
+    // keeps the existing port claim until reboot, so do not claim a second port.
+    if (can_monitor)
+        return;
+
     therm_port = therm_settings.port;
 
     // Claim the port (or proceed unclaimed if not yet assigned — user configures post-boot)
     if (therm_port == IOPORT_UNASSIGNED || a_in.claim(&a_in, &therm_port, "Thermistor", (pin_cap_t){})) {
-        on_realtime_report = grbl.on_realtime_report;
-        grbl.on_realtime_report = onRealtimeReport;
+        // Hook only once, a repeated load would otherwise chain the handler to itself
+        if (!hooked) {
+            hooked = true;
+            on_realtime_report = grbl.on_realtime_report;
+            grbl.on_realtime_report = onRealtimeReport;
+        }
         can_monitor = (therm_port != IOPORT_UNASSIGNED);
     }
 }
