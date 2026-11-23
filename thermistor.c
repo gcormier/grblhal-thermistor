@@ -113,24 +113,25 @@ static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_fla
         int32_t raw  = ioport_wait_on_input(Port_Analog, therm_port, WaitMode_Immediate, 0.0f);
         float   temp = read_temperature(raw);
 
-        if (!isnan(temp)) {
-            if (isnan(prev_temp) || fabsf(temp - prev_temp) >= 0.1f || report.all) {
-                strcpy(buf, "|TH0:");
-                strcat(buf, ftoa(temp, 1));
-                prev_temp = temp;
-            }
+        if (!isnan(temp) && (isnan(prev_temp) || fabsf(temp - prev_temp) >= 0.1f || report.all)) {
+            strcpy(buf, "|TH0:");
+            strcat(buf, ftoa(temp, 1));
+            prev_temp = temp;
+        }
 
-            if (therm_settings.max_temp > 0.0f) {
-                if (temp > therm_settings.max_temp) {
-                    if (++overtemp_count >= OVERTEMP_ALARM_COUNT) {
-                        // Stop the spindle immediately — STATE_ALARM halts motion but does
-                        // not automatically de-energize the spindle for non-critical alarms.
-                        spindle_all_off(true);
-                        system_set_exec_alarm(Alarm_Spindle);
-                    }
-                } else {
-                    overtemp_count = 0;  // clear on any good reading below threshold
+        if (therm_settings.max_temp > 0.0f) {
+            // Fail safe: an invalid reading (open or shorted sensor) counts as over-temp
+            if (isnan(temp) || temp > therm_settings.max_temp) {
+                if (overtemp_count < OVERTEMP_ALARM_COUNT)
+                    overtemp_count++;
+                if (overtemp_count >= OVERTEMP_ALARM_COUNT) {
+                    // Stop the spindle immediately — STATE_ALARM halts motion but does
+                    // not automatically de-energize the spindle for non-critical alarms.
+                    spindle_all_off(true);
+                    system_set_exec_alarm(Alarm_Spindle);
                 }
+            } else {
+                overtemp_count = 0;  // clear on any good reading below threshold
             }
         }
     }
