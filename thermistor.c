@@ -214,6 +214,12 @@ static status_code_t cmd_cal (sys_state_t state, char *args)
     if (endptr == args)
         return Status_BadNumberFormat;
 
+    // Reject trailing garbage (e.g. "25abc") and non-finite values
+    while (*endptr == ' ' || *endptr == '\t')
+        endptr++;
+    if (*endptr != '\0' || !isfinite(known_temp))
+        return Status_BadNumberFormat;
+
     // Measure without the current calibration offset to get the raw deviation
     float saved = therm_settings.cal_offset;
     therm_settings.cal_offset = 0.0f;
