@@ -113,24 +113,25 @@ static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_fla
         int32_t raw  = ioport_wait_on_input(Port_Analog, therm_port, WaitMode_Immediate, 0.0f);
         float   temp = read_temperature(raw);
 
-        if (!isnan(temp)) {
-            if (isnan(prev_temp) || fabsf(temp - prev_temp) >= 0.1f || report.all) {
-                strcpy(buf, "|TH0:");
-                strcat(buf, ftoa(temp, 1));
-                prev_temp = temp;
-            }
+        if (!isnan(temp) && (isnan(prev_temp) || fabsf(temp - prev_temp) >= 0.1f || report.all)) {
+            strcpy(buf, "|TH0:");
+            strcat(buf, ftoa(temp, 1));
+            prev_temp = temp;
+        }
 
-            if (therm_settings.max_temp > 0.0f) {
-                if (temp > therm_settings.max_temp) {
-                    if (++overtemp_count >= OVERTEMP_ALARM_COUNT) {
-                        // Stop the spindle immediately — STATE_ALARM halts motion but does
-                        // not automatically de-energize the spindle for non-critical alarms.
-                        spindle_all_off(true);
-                        system_set_exec_alarm(Alarm_Spindle);
-                    }
-                } else {
-                    overtemp_count = 0;  // clear on any good reading below threshold
+        if (therm_settings.max_temp > 0.0f) {
+            // Fail safe: an invalid reading (open or shorted sensor) counts as over-temp
+            if (isnan(temp) || temp > therm_settings.max_temp) {
+                if (overtemp_count < OVERTEMP_ALARM_COUNT)
+                    overtemp_count++;
+                if (overtemp_count >= OVERTEMP_ALARM_COUNT) {
+                    // Stop the spindle immediately — STATE_ALARM halts motion but does
+                    // not automatically de-energize the spindle for non-critical alarms.
+                    spindle_all_off(true);
+                    system_set_exec_alarm(Alarm_Spindle);
                 }
+            } else {
+                overtemp_count = 0;  // clear on any good reading below threshold
             }
         }
     }
@@ -211,6 +212,12 @@ static status_code_t cmd_cal (sys_state_t state, char *args)
     char *endptr;
     float known_temp = strtof(args, &endptr);
     if (endptr == args)
+        return Status_BadNumberFormat;
+
+    // Reject trailing garbage (e.g. "25abc") and non-finite values
+    while (*endptr == ' ' || *endptr == '\t')
+        endptr++;
+    if (*endptr != '\0' || !isfinite(known_temp))
         return Status_BadNumberFormat;
 
     // Measure without the current calibration offset to get the raw deviation
@@ -303,12 +310,23 @@ static void therm_settings_load (void)
                                  sizeof(thermistor_settings_t), true) != NVS_TransferResult_OK)
         therm_settings_restore();
 
+    static bool hooked = false;
+
+    // Settings may be reloaded at runtime (e.g. after a reset). Active monitoring
+    // keeps the existing port claim until reboot, so do not claim a second port.
+    if (can_monitor)
+        return;
+
     therm_port = therm_settings.port;
 
     // Claim the port (or proceed unclaimed if not yet assigned — user configures post-boot)
     if (therm_port == IOPORT_UNASSIGNED || a_in.claim(&a_in, &therm_port, "Thermistor", (pin_cap_t){})) {
-        on_realtime_report = grbl.on_realtime_report;
-        grbl.on_realtime_report = onRealtimeReport;
+        // Hook only once, a repeated load would otherwise chain the handler to itself
+        if (!hooked) {
+            hooked = true;
+            on_realtime_report = grbl.on_realtime_report;
+            grbl.on_realtime_report = onRealtimeReport;
+        }
         can_monitor = (therm_port != IOPORT_UNASSIGNED);
     }
 }
@@ -321,7 +339,7 @@ static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
     if (!newopt)
-        report_plugin("Thermistor", "1.4");
+        report_plugin("Thermistor", "1.5");
 }
 
 // ---------------------------------------------------------------------------

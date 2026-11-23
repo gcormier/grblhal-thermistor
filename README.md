@@ -121,7 +121,9 @@ The `TH0:` field is suppressed if the reading hasn't changed by more than 0.1 °
 
 If the sensor reads open-circuit or short-circuit (ADC at rail), the field is omitted and `$THRMTEMP` reports `[TH0: sensor error]`.
 
-If `$459` is set and the temperature exceeds it, the machine will abort the current cycle.
+If `$459` is set and the temperature exceeds it for 5 consecutive realtime reports, the spindle is stopped and the machine enters `ALARM:14` (spindle alarm). A valid reading at or below the threshold resets the count.
+
+The alarm is fail-safe: while `$459` is set, an invalid reading (open-circuit or short-circuit sensor) also counts as over-temperature, so 5 consecutive invalid readings trip the same alarm. Set `$459` to 0 to disable the alarm entirely, including sensor-failure detection.
 
 ---
 
