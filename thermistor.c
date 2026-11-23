@@ -339,7 +339,7 @@ static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
     if (!newopt)
-        report_plugin("Thermistor", "1.4");
+        report_plugin("Thermistor", "1.5");
 }
 
 // ---------------------------------------------------------------------------
